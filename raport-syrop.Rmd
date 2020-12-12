@@ -1,0 +1,389 @@
+---
+title: "Spożywanie syropu glukozowo-fruktozowego. Badanie ankietowe"
+author: "Grzegorz Smoliński"
+date: "11.12.2020"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, error = FALSE, fig.align = "center", fig.width = 8)
+```
+
+```{r libraries}
+library(tidyverse)
+library(stringi)
+library(janitor)
+library(scales)
+library(broom)
+library(infer)
+library(car)
+library(ggrepel)
+library(wesanderson)
+library(broom)
+library(kableExtra)
+library(gridExtra)
+```
+
+```{r data_preparation}
+dane <- read_delim("Ankieta_2.txt", delim = ",")
+dane <- clean_names(dane)
+names(dane) <- stri_replace_all_regex(names(dane), "^x[0-9]{1,2}_", "")
+dane <- dane %>%
+  mutate(wyksztalcenie = if_else(is.na(wyksztalcenie) & wiek_w_latach < 23, "Średnie", wyksztalcenie),
+         wyksztalcenie = if_else(is.na(wyksztalcenie) & wiek_w_latach > 22, "Wyższe", wyksztalcenie),
+         wiek_kategorie = case_when(wiek_w_latach < 19 ~ "15-18",
+                                    wiek_w_latach > 18 & wiek_w_latach < 25 ~ "19-24",
+                                    wiek_w_latach > 25 & wiek_w_latach < 31 ~ "25-30",
+                                    wiek_w_latach > 30 & wiek_w_latach < 41 ~ "31-40",
+                                    TRUE ~ "41 i więcej"),
+         ograniczanie_spozycia = if_else(czy_stara_sie_pani_pan_ograniczac_spozycie_syropu_glukozowo_fruktozowego_w_swojej_diecie_czy_tez_nie == "Staram się ograniczać", "Ograniczanie", "Nieograniczanie lub niemyślenie o tym"))
+
+dane_srednie_t_test <- dane %>%
+  select(plec, wiek_kategorie, aktualne_miejsce_zamieszkania, jaki_jest_pani_pana_status_zawodowy, wyksztalcenie, czy_ma_pani_pan_dzieci, czy_kiedykolwiek_byla_pani_byl_pan_lub_jest_na_diecie_redukcyjnej_lub_innej_niestandardowej, jak_czesto_spozywa_pani_pan_produkty_zawierajace_w_skladzie_syrop_glukozowo_fruktozowy, jak_czesto_w_pani_pana_domu_weryfikuje_sie_sklady_produktow_przy_zakupie_artykulow_zywnosciowych)
+```
+
+## Wstęp
+Poniższe analizy oparte są na wynikach badania wśród użytkowników wybranej grupy na Facebooku. Zebrano 100 ankiet internetowych dotyczących spożywania produktów z syropem glukozowo-fruktozowym, pytając o nawyki i przekonania w tym zakresie. Na potrzeby tego raportu, posłużono się jednak wymyślonymi danymi.
+
+Z racji tego, że dane zbierane były w specificznym miejscu, jakim są użytkownicy jednej grupy na Facebooku, trudno mówić o reprezentatywności badań. Próba odzwierciedla jakąś populację, nie jest jednak jasne, jaką.
+
+## Cechy społeczno-demograficzne badanych
+
+Poniżej przedstawiono społeczno-demograficzny opis próby, z uwzględnieniem takich zmiennych, jak: płeć, wiek, wykształcenie, miejsce zamieszkania, status zawodowy.
+
+```{r wykresy_spoleczno_demograficzne_wiek_wyksztalcenie}
+wiek_histogram <- dane %>%
+  ggplot(aes(wiek_w_latach)) +
+  geom_histogram(color = "white", fill = "gray", binwidth = 5) +
+  theme_minimal() +
+  theme(axis.line.x.bottom = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.line.y.left = element_line(color = "#FFDB6D", linetype = "solid"),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold.italic", colour = "gray"),
+        plot.caption = element_text(colour = "black", size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  xlab("Wiek") +
+  ylab("Liczebność") +
+  labs(title = "Wiek w przedziałach - liczebność (histogram)", caption = "n = 100\nPyt.: Wiek (w latach).")
+
+wyksztalcenie <- dane %>%
+  group_by(wyksztalcenie) %>%
+  summarise(liczebnosc = n()) %>%
+  mutate(procent = liczebnosc / sum(liczebnosc)) %>%
+  ggplot(aes(fct_relevel(wyksztalcenie, "Podstawowe", "Zawodowe", "Średnie", "Wyższe"), procent)) +
+  geom_col(fill = "#52854C") +
+  geom_label(aes(label = percent(procent, accuracy = 1))) +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold.italic", colour = "gray"),
+        axis.line.x.bottom = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.line.y.left = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.text.x = element_text(size = 10),
+        plot.caption = element_text(colour = "black", size = 10),
+        axis.text.y = element_text(size = 10)) +
+  scale_y_continuous(labels = label_percent(accuracy = 1)) +
+  ylab("") +
+  xlab("") +
+  labs(title = "Wykształcenie", caption = "n = 100\nPyt.: Wykształcenie.")
+
+grid.arrange(wiek_histogram, wyksztalcenie, ncol = 2)
+```
+
+W badaniu wzięło udział tyle samo kobiet, co mężczyzn. Rozkład wieku jest lewoskośny - w próbie większość stanowią relatywnie młodsze osoby, szczególnie w wieku ok. 25 lat. W próbie - w porównaniu z populacją generalną mieszkańców Polski - nadreprezentowane są osoby o wykształceniu wyższym. Przyczyną tego z pewnością jest sposób doboru próby.
+
+```{r wykresy_spoleczno_demograficzne_reszta}
+
+miejsce_zamieszkania <- dane %>%
+  group_by(aktualne_miejsce_zamieszkania) %>%
+  summarise(liczebnosc = n()) %>%
+  mutate(procent = liczebnosc / sum(liczebnosc)) %>%
+  ggplot(aes(fct_recode(fct_relevel(aktualne_miejsce_zamieszkania, "Wieś", "Miasto poniżej 100 tys. mieszkańców", "Miasto 100-200 tys. mieszkańców", "Miasto powyżej 200 tys. mieszkańców"), "Miasto poniżej 100 tys. ..." = "Miasto poniżej 100 tys. mieszkańców", "Miasto 100-200 tys. ..." = "Miasto 100-200 tys. mieszkańców", "Miasto powyżej 200 tys. ..." = "Miasto powyżej 200 tys. mieszkańców"), procent)) +
+  geom_col(fill = "#52854C") +
+  geom_label(aes(label = percent(procent, accuracy = 1))) +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold.italic", colour = "gray"),
+        axis.line.x.bottom = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.line.y.left = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        plot.caption = element_text(colour = "black", size = 10),
+        axis.text.y = element_text(size = 10)) +
+  scale_y_continuous(labels = label_percent(accuracy = 1)) +
+  ylab("") +
+  xlab("") +
+  labs(title = "Miejsce zamieszkania", caption = "n = 100\nPyt.: Aktualne miejsce zamieszkania.")
+
+status_zawodowy <- dane %>%
+  group_by(jaki_jest_pani_pana_status_zawodowy) %>%
+  summarise(liczebnosc = n()) %>%
+  mutate(procent = liczebnosc / sum(liczebnosc)) %>%
+  ggplot(aes(fct_relevel(jaki_jest_pani_pana_status_zawodowy, "Uczę się", "Studiuję/studiuję i pracuję", "Pracuję", "Jestem bezrobotna/y"), procent)) +
+  geom_col(fill = "#52854C") +
+  geom_label(aes(label = percent(procent, accuracy = 1))) +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold.italic", colour = "gray"),
+        axis.line.x.bottom = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.line.y.left = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.text.x = element_text(angle = 45, hjust = 0.92, size = 10),
+        plot.caption = element_text(colour = "black", size = 10),
+        axis.text.y = element_text(size = 10)) +
+  scale_y_continuous(labels = label_percent(accuracy = 1)) +
+  ylab("") +
+  xlab("") +
+  labs(title = "Status zawodowy", caption = "n = 100\nPyt.: Jaki jest Pani/Pana status zawodowy?")
+
+grid.arrange(miejsce_zamieszkania, status_zawodowy, ncol = 2)
+```
+
+Najwięcej badanych mieszka w największych miastach (w badaniu rozumianych jako miasta o więcej niż 200 tys. mieszkańców), a także pracuje.
+
+Widać, wiedząc, jaki jest rozkład wspomnianych zmiennych w populacji np. mieszkańców Polski, że próba nie odzwierciedla tej populacji, ale jakąś inną, której większość stanowią młodsze, dobrze wykształcone osoby z dużych miast, aktywne zawodowo.
+
+## Spożywanie produktów z syropem glukozowo-fruktozowym
+
+Jednym z pytań badawczych było, czy badani w ogóle spożywają produkty z syropem glukozowo-fruktozowym, jeśli tak, to jak często i czy starają się to spożycie ograniczać. Okazało się, że - co prawdopodobnie nie jest zaskakujące - respondenci w większości przypadków kupują produkty z tym składnikiem.
+
+```{r czy_kupuje_produkty_z_syropem}
+czy_kupuje_produkty_z_syropem <- dane %>%
+  group_by(czy_kupuje_pan_pani_produkty_ktore_zawieraja_w_swoim_skladzie_syrop_glukozowo_fruktozowy) %>%
+  summarise(liczebnosc = n()) %>%
+  mutate(procent = liczebnosc / sum(liczebnosc)) %>%
+  ggplot(aes(fct_relevel(czy_kupuje_pan_pani_produkty_ktore_zawieraja_w_swoim_skladzie_syrop_glukozowo_fruktozowy, "Nie wiem", "Nie", "Tak"), procent)) +
+  geom_col(fill = "#52854C") +
+  geom_label(aes(label = percent(procent, accuracy = 1))) +
+  theme_minimal() +
+  theme(panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold.italic", colour = "gray"),
+        axis.line.x.bottom = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.line.y.left = element_line(color = "#FFDB6D", linetype = "solid"),
+        plot.caption = element_text(colour = "black", size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  scale_y_continuous(labels = label_percent(accuracy = 1)) +
+  ylab("") +
+  xlab("") +
+  labs(title = "Kupowanie produktów z syropem glukozowo-fruktozowym", caption = "n = 100\nPyt.: Czy kupuje Pan/Pani produkty, które zawierają w swoim składzie syrop glukozowo-fruktozowy?") +
+  coord_flip()
+czy_kupuje_produkty_z_syropem
+```
+
+Warto odnotować spory udział odpowedzi "Nie wiem", które dotykają innej nieco kwestii, tj. świadomości konsumenckiej i wiedzy, co będzie przedmiotem późniejszej analizy.
+
+Wśród tych, którzy wiedzą, że kupują produkty z syropem glukozowo-fruktozowym, przeważają odpowiedzi wskazujące na napoje i słodycze jako te kategorie produktów, które najczęściej zawierają składnik będący przedmiotem tych studiów.
+
+```{r jakie_produkty_z_syropem_kupuje}
+liczebnosc_danych_po_filtrze <- length(dane$jakiego_rodzaju_produkty_zawierajace_syrop_glukozowo_fruktozowy_kupuje_pani_pan_najczesciej[!is.na(dane$jakiego_rodzaju_produkty_zawierajace_syrop_glukozowo_fruktozowy_kupuje_pani_pan_najczesciej)])
+
+jakie_produkty_z_syropem_kupuje <- dane %>%
+  select(jakiego_rodzaju_produkty_zawierajace_syrop_glukozowo_fruktozowy_kupuje_pani_pan_najczesciej) %>%
+  filter(!is.na(jakiego_rodzaju_produkty_zawierajace_syrop_glukozowo_fruktozowy_kupuje_pani_pan_najczesciej)) %>%
+  separate(jakiego_rodzaju_produkty_zawierajace_syrop_glukozowo_fruktozowy_kupuje_pani_pan_najczesciej, into = c("produkt_1", "produkt_2", "produkt_3"), sep = ";") %>%
+  gather("rodzaj_produktu", "produkt") %>%
+  select(-rodzaj_produktu) %>%
+  filter(!is.na(produkt)) %>%
+  group_by(produkt) %>%
+  summarise(liczebnosc = n()) %>%
+  mutate(procent = liczebnosc / liczebnosc_danych_po_filtrze) %>%
+  ggplot(aes(fct_reorder(produkt, procent), procent)) +
+  geom_col(fill = "#52854C") +
+  geom_label(aes(label = percent(procent, accuracy = 1))) + 
+  theme_minimal() +
+  theme(panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold.italic", colour = "gray"),
+        axis.line.x.bottom = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.line.y.left = element_line(color = "#FFDB6D", linetype = "solid"),
+        plot.caption = element_text(colour = "black", size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  coord_flip() +
+  scale_y_continuous(labels = label_percent(accuracy = 1)) +
+  ylab("") +
+  xlab("") +
+  labs(title = "Jakie produkty z syropem glukozowo-fruktozowym kupują badani?", caption = "n = 68\nPyt.: Jakiego rodzaju produkty zawierające syrop glukozowo-fruktozowy kupuje Pani/Pan najczęściej?\nPytanie wielokrotnego wyboru")
+jakie_produkty_z_syropem_kupuje
+```
+
+Zadano również pytanie o to, czy respondenci próbują ograniczać spożywanie produktów z syropem glukozowo-fruktozowym czy też nie. Wyniki wskazują, że więcej jest tych, którzy świadomie ograniczają udział tego składnika w diecie niż takich, którzy nie zastanawiają się nad tym:
+
+```{r czy_stara_sie_ograniczac}
+czy_stara_sie_ograniczac <- dane %>%
+  filter(!is.na(czy_stara_sie_pani_pan_ograniczac_spozycie_syropu_glukozowo_fruktozowego_w_swojej_diecie_czy_tez_nie)) %>%
+  group_by(czy_stara_sie_pani_pan_ograniczac_spozycie_syropu_glukozowo_fruktozowego_w_swojej_diecie_czy_tez_nie) %>%
+  summarise(liczebnosc = n()) %>%
+  mutate(procent = liczebnosc / sum(liczebnosc)) %>%
+  ggplot(aes(fct_reorder(czy_stara_sie_pani_pan_ograniczac_spozycie_syropu_glukozowo_fruktozowego_w_swojej_diecie_czy_tez_nie, procent, .desc = TRUE), procent)) +
+  geom_col(fill = "#52854C") +
+  geom_label(aes(label = percent(procent, accuracy = 1))) +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold.italic", colour = "gray"),
+        axis.line.x.bottom = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.line.y.left = element_line(color = "#FFDB6D", linetype = "solid"),
+        plot.caption = element_text(colour = "black", size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  scale_y_continuous(labels = label_percent(accuracy = 1)) +
+  ylab("") +
+  xlab("") +
+  labs(title = "Ograniczanie spożycia syropu glukozowo-fruktozowego", caption = "n = 68\nPyt.:  Czy stara się Pani/Pan ograniczać spożycie syropu glukozowo-fruktozowego w swojej diecie czy też nie?")
+czy_stara_sie_ograniczac
+```
+
+Jedną ze zmiennych niezależnych, niebędącą zmienną społeczno-demograficzną, było to, czy teraz lub kiedyś respondent jest lub był na diecie redukcyjnej lub innej niestandardowej. Założono, że osoby takie mogą w większym stopniu być świadomymi konsumentami produktów spożywczych. Badania pozwoliły to potwierdzić - zmienna ta różnicuje to, czy ktoś stara się świadomie ograniczać spożycie produktów z syropem glukozowo-fruktozowym.
+
+```{r ograniczanie_a_dieta, fig.width=10}
+ograniczanie_a_dieta <- dane %>%
+  filter(!is.na(ograniczanie_spozycia)) %>%
+  group_by(czy_kiedykolwiek_byla_pani_byl_pan_lub_jest_na_diecie_redukcyjnej_lub_innej_niestandardowej, ograniczanie_spozycia) %>%
+  summarise(liczebnosc = n()) %>%
+  mutate(procent = liczebnosc / sum(liczebnosc)) %>%
+  ggplot(aes(czy_kiedykolwiek_byla_pani_byl_pan_lub_jest_na_diecie_redukcyjnej_lub_innej_niestandardowej, procent, fill = ograniczanie_spozycia)) +
+  geom_col(position = position_dodge()) +
+  theme_minimal() +
+  theme(panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold.italic", colour = "gray"),
+        axis.line.x.bottom = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.line.y.left = element_line(color = "#FFDB6D", linetype = "solid"),
+        plot.caption = element_text(colour = "black", size = 10),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", colour = "gray"),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        legend.text = element_text(size = 10)) +
+  scale_y_continuous(labels = label_percent(accuracy = 1)) +
+  ylab("") +
+  xlab("\nStosowanie diety") +
+  labs(title = "Ograniczanie spożycia syropu glukozowo-fruktozowego a stosowanie diety", caption = "n = 68\nPyt.: Czy stara się Pani/Pan ograniczać spożycie syropu glukozowo-fruktozowego\nw swojej diecie czy też nie?\nPyt.: Czy kiedykolwiek była Pani/był Pan (lub jest) na diecie redukcyjnej lub innej niestandardowej?", fill = "Spożycie syropu glukozowo-fruktozowego") +
+  scale_fill_manual(values = wes_palette("Darjeeling2"))
+ograniczanie_a_dieta
+```
+
+Świadome ograniczanie spożycia jest tu rozumiane jako przeciwstawne odpowiedzi do tych, które mówiły o niemyśleniu o tej kwestii lub nieograniczaniu spożycia syropu glukozowo-fruktozowego (te dwie kategorie zostały połączone). Ci respondenci, którzy kiedykolwiek byli na diecie redukcyjnej lub innej niestandardowej istotnie statystycznie (p < 0,01) częściej świadomie ograniczają spożycie syropu glukozowo-fruktozowego.
+
+Podsumowując, badani w większości spożywają produkty z syropem glukozowo-fruktozowym, wśród których najczęściej pojawiają się słodycze i napoje, aczkolwiek deklarują jednocześnie to, że wiedzą, iż syrop ten jest niezdrowy, częściej starając się ograniczać jego spożycie niż niepodejmować świadomych działań.
+
+## Czytanie etykiet
+
+Zbadano dwie rzeczy, jeśli chodzi o czytanie etykiet przez respondentów - jak często w ogóle w ich domach weryfikuje się etykiety produktów spożywczych oraz, na którym miejscu zazwyczaj, w kupowanych przez nich produktach, znajduje się syrop glukozowo-fruktozowy, tj. czy jest to mniej więcej na początku listy składników, w środku czy na końcu.
+
+```{r na_ktorym_miejscu_w_skladzie}
+na_ktorym_miejscu_w_skladzie <- dane %>%
+  filter(!is.na(na_ktorym_miejscu_w_skladzie_zazwyczaj_kupowanych_przez_pania_pana_produktow_znajduje_sie_syrop_glukozowo_fruktozowy)) %>%
+  group_by(na_ktorym_miejscu_w_skladzie_zazwyczaj_kupowanych_przez_pania_pana_produktow_znajduje_sie_syrop_glukozowo_fruktozowy) %>%
+  summarise(liczebnosc = n()) %>%
+  mutate(procent = liczebnosc / sum(liczebnosc),
+         dummy = 1) %>%
+  ggplot(aes(dummy, procent, fill = fct_relevel(na_ktorym_miejscu_w_skladzie_zazwyczaj_kupowanych_przez_pania_pana_produktow_znajduje_sie_syrop_glukozowo_fruktozowy, "Nie pamiętam", "Nigdy na to nie zwracałam/em uwagi", "Koniec", "Środek", "Początek"))) +
+  geom_col() +
+  geom_text(aes(label = percent(procent, 1)),position = position_stack(vjust = 0.5), show.legend = FALSE, color = "white") +
+  theme_minimal() +
+  theme(panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold.italic", colour = "gray"),
+        axis.line.x.bottom = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.line.y.left = element_line(color = "#FFDB6D", linetype = "solid"), axis.text.y = element_blank(), legend.title = element_blank(),
+        plot.caption = element_text(colour = "black", size = 10),
+        axis.text.x = element_text(size = 10),
+        legend.text = element_text(size = 10)) +
+  coord_flip() +
+  scale_y_continuous(labels = label_percent(accuracy = 1)) +
+  ylab("") +
+  xlab("") +
+  labs(title = "Miejsce w składzie syropu glukozowo-fruktozowego", caption = "n = 68\nPyt.: Na którym miejscu w składzie zazwyczaj kupowanych przez\nPanią/Pana produktów znajduje się syrop glukozowo-fruktozowy?") +
+  scale_fill_manual(values = wes_palette("Cavalcanti1"))
+na_ktorym_miejscu_w_skladzie
+```
+
+Zazwyczaj jest to środek listy składników. Co ciekawe, respondenci raczej nie mieli problemu z tym pytaniem (niewielki odsetek odpowiedzi "Nie pamiętam" oraz "Nigdy na to nie zwracałam/em uwagi"). Wydaje się to spójne z tym, że większość z nich w ogóle wie, czy spożywa syrop glukozowo-fruktozowy.
+
+Pytanie o częstość weryfikowania składów produktów nie odnosiło się jedynie do zachowań respondenta, ale miało w zamierzeniu dotyczyć także jego najbliższego otoczenia, czyli domowników w ogóle. Wydawało się to szczególnie interesujące z tego punktu widzenia, że w badaniu chciano sprawdzić, jak fakt posiadania dziecka oraz ich wiek wpływa na rodziców ze względu na żywienie oraz wiedzę na temat żywienia.
+
+Wiek dzieci wyznaczało pytanie o wiek najmłodszego dziecka, a w toku analizy wykluczono tych respondentów, których najmłodsze dziecko miało więcej niż 19 lat, zakładając, że dość prawodpodobne jest, iż wtedy dzieci przestają głównie mieszkać z rodzicami, a zatem uwzględnienie takich przypadków byłoby niezgodne z problemem badawczym, ponieważ w pewnym sensie objęłoby rodziców nieróżniących się od tych dorosłych, którzy w ogóle nie mają dzieci. Dane pokazały, że im dzieci stają się coraz starsze, etykiety rzadziej są weryfikowane (czytane).
+
+```{r czestosc_spozywania_wiek_dziecka}
+czestosc_spozywania_wiek_dziecka <- dane %>%
+  filter(!is.na(jak_czesto_w_pani_pana_domu_weryfikuje_sie_sklady_produktow_przy_zakupie_artykulow_zywnosciowych) & !is.na(ile_lat_ma_pani_pana_najmlodsze_dziecko_w_latach)) %>%
+  filter(ile_lat_ma_pani_pana_najmlodsze_dziecko_w_latach < 20) %>%
+  ggplot(aes(ile_lat_ma_pani_pana_najmlodsze_dziecko_w_latach, jak_czesto_w_pani_pana_domu_weryfikuje_sie_sklady_produktow_przy_zakupie_artykulow_zywnosciowych)) +
+  geom_point(color = "#52854C") +
+  geom_smooth(method = "lm", se = FALSE, color = "#91C058") +
+  theme_minimal() +
+  theme(panel.grid.minor.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold.italic", colour = "gray"),
+        axis.line.x.bottom = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.line.y.left = element_line(color = "#FFDB6D", linetype = "solid"),
+        plot.caption = element_text(colour = "black", size = 10),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", colour = "gray"),
+        axis.title.x = element_text(size = 11),
+        axis.title.y = element_text(size = 11),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  scale_y_continuous(labels = pretty_breaks()) +
+  ylab("Częstość weryfikowania składów produktów (skala 1-10)") +
+  xlab("Wiek najmłodszego dziecka") +
+  labs(title = "Weryfikowanie składów produktów a wiek najmłodszego dziecka", caption = "n = 34\nPyt.: Jak często w Pani/Pana domu weryfikuje się składy produktów przy zakupie artykułów żywnościowych?\nPyt.: Ile lat ma Pani/Pana najmłodsze dziecko (w latach)?", subtitle = "Dzieci w wieku do 19 lat")
+czestosc_spozywania_wiek_dziecka
+```
+
+```{r korelacja_czestosc_spozywania_wiek_dziecka}
+dane_korelacja <- dane %>%
+  filter(!is.na(jak_czesto_w_pani_pana_domu_weryfikuje_sie_sklady_produktow_przy_zakupie_artykulow_zywnosciowych) & !is.na(ile_lat_ma_pani_pana_najmlodsze_dziecko_w_latach)) %>%
+  filter(ile_lat_ma_pani_pana_najmlodsze_dziecko_w_latach < 20)
+korelacja_czestosc_spozywania_wiek_dziecka <- tidy(cor.test(x = dane_korelacja$jak_czesto_w_pani_pana_domu_weryfikuje_sie_sklady_produktow_przy_zakupie_artykulow_zywnosciowych[!is.na(dane_korelacja$ile_lat_ma_pani_pana_najmlodsze_dziecko_w_latach)], y = dane_korelacja$ile_lat_ma_pani_pana_najmlodsze_dziecko_w_latach[!is.na(dane_korelacja$ile_lat_ma_pani_pana_najmlodsze_dziecko_w_latach)], method = "spearman"))
+korelacja_czestosc_spozywania_wiek_dziecka <- korelacja_czestosc_spozywania_wiek_dziecka[, c(1, 3, 4)]
+names(korelacja_czestosc_spozywania_wiek_dziecka) <- c("Wartość korelacji", "Istotność statystyczna", "Metoda")
+korelacja_czestosc_spozywania_wiek_dziecka <- korelacja_czestosc_spozywania_wiek_dziecka %>%
+  mutate(`Wartość korelacji` = stri_replace_all(round(`Wartość korelacji`, 2), ",", fixed = "."),
+        `Istotność statystyczna` = "p < 0,01",
+        Metoda = "Współczynnik korelacji rang Spearmana")
+korelacja_czestosc_spozywania_wiek_dziecka %>%
+  kable() %>%
+  kable_paper("hover", full_width = F)
+```
+
+Współczynnik korelacji wyniósł -0,46, jest więc umiarkowany.
+
+Także w przypadku częstości weryfikowania składów produktów znaczenie okazał się mieć fakt, czy respondenci byli na diecie redukcyjnej lub innej niestandardowej. Jeśli tak - istotnie statystycznie (p < 0,01) częściej czytali etykiety:
+
+```{r dieta_czestosc_weryfikowania}
+srednie <- dane_srednie_t_test %>%
+  group_by(czy_kiedykolwiek_byla_pani_byl_pan_lub_jest_na_diecie_redukcyjnej_lub_innej_niestandardowej) %>%
+  summarise(jak_czesto_w_pani_pana_domu_weryfikuje_sie_sklady_produktow_przy_zakupie_artykulow_zywnosciowych = round(mean(jak_czesto_w_pani_pana_domu_weryfikuje_sie_sklady_produktow_przy_zakupie_artykulow_zywnosciowych, na.rm = TRUE), 2))
+
+dieta_czestosc_weryfikowania <- dane_srednie_t_test %>%
+  ggplot(aes(czy_kiedykolwiek_byla_pani_byl_pan_lub_jest_na_diecie_redukcyjnej_lub_innej_niestandardowej, jak_czesto_w_pani_pana_domu_weryfikuje_sie_sklady_produktow_przy_zakupie_artykulow_zywnosciowych, label = comma(jak_czesto_w_pani_pana_domu_weryfikuje_sie_sklady_produktow_przy_zakupie_artykulow_zywnosciowych, big.mark = ".", decimal.mark = ","))) +
+  geom_point(position = position_jitter(width = 0.15, height = 0.2), color = "#52854C") +
+  stat_summary(fun = "mean", geom = "point", size = 6, color = "steelblue", fill = "steelblue") +
+  geom_label_repel(data = srednie, direction = "x", segment.size = 0.2, nudge_x = 0.25) +
+  theme_minimal() +
+  theme(panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold.italic", colour = "gray"),
+        axis.line.x.bottom = element_line(color = "#FFDB6D", linetype = "solid"),
+        axis.line.y.left = element_line(color = "#FFDB6D", linetype = "solid"),
+        plot.caption = element_text(colour = "black", size = 10),
+        plot.subtitle = element_text(hjust = 0.5, face = "italic", colour = "gray"),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(size = 11),
+        axis.title.y = element_text(size = 11)) +
+  scale_y_continuous(labels = pretty_breaks()) +
+  ylab("Częstość weryfikowania składów produktów (skala 1-10)") +
+  xlab("Bycie na diecie redukcyjnej lub innej niestandardowej") +
+  labs(title = "Częstość weryfikowania składów produktów a dieta", caption = "n = 100\nPyt.: Jak często w Pani/Pana domu weryfikuje się składy produktów przy zakupie artykułów żywnościowych?\nPyt.: Czy kiedykolwiek była Pani/był Pan (lub jest) na diecie redukcyjnej lub innej niestandardowej?\nPozycje punktów na wykresie zostały nieco przesunięte, by się nie nakładały.")
+dieta_czestosc_weryfikowania
+```
+
+## Podsumowanie
+
+Studia pokazały, że badani byli w dużym stopniu świadomymi konsumentami produktów spożywczych na przykładzie syropu glukozowo-fruktozowego: potrafili w większości powiedzieć, czy w ogóle kupują produkty z tym składnikiem, jakie najczęściej są to produkty i na którym miejscu w składzie ten składnik występuje. Zauważono, że ważną zmienną różnicująco świadome ograniczanie spożycia syropu glukozowo-fruktozowego jest to, czy ktoś był na diecie. Jeśli tak, większą uwagę przykłada do żywienia. Biorąc pod uwagę czytanie etykiet produktów w ogóle, a nie skupiając się tylko na syropie glukozowo-fruktozwym, badania pokazały również, że im ktoś ma młodsze dzieci, tym częściej w jego domu weryfikuje się składy produktów.
